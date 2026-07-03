@@ -30,6 +30,7 @@ class ConversationMessage extends Model
      */
     protected $casts = [
         'attachments' => 'array',
+        'provider_content_blocks' => 'array',
         'tool_calls' => 'array',
         'tool_results' => 'array',
         'usage' => 'array',
