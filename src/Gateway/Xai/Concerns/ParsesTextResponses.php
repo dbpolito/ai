@@ -69,7 +69,7 @@ trait ParsesTextResponses
             meta: new Meta($provider->name(), $model, $citations),
             structured: $structured ? $this->decodeStructuredOutput($text) : null,
             continuationToken: $data['id'] ?? null,
-            providerContentBlocks: $this->extractStandaloneReasoningBlocks($output, $mappedToolCalls),
+            providerContentBlocks: $this->isStateless($provider) ? $this->extractReplayBlocks($output) : [],
         );
     }
 
@@ -190,19 +190,13 @@ trait ParsesTextResponses
     }
 
     /**
-     * Extract reasoning blocks that should be replayable on later turns.
+     * Keep every output item so a stateless turn replays untouched, as the Responses API requires.
+     *
+     * @param  array<int, mixed>  $output
+     * @return array<int, array<string, mixed>>
      */
-    protected function extractStandaloneReasoningBlocks(array $output, array $toolCalls): array
+    protected function extractReplayBlocks(array $output): array
     {
-        $mappedReasoningIds = collect($toolCalls)
-            ->pluck('reasoningId')
-            ->filter()
-            ->all();
-
-        return collect($output)
-            ->filter(fn (array $item) => ($item['type'] ?? '') === 'reasoning')
-            ->reject(fn (array $item) => in_array($item['id'] ?? null, $mappedReasoningIds, true))
-            ->values()
-            ->all();
+        return array_values(array_filter($output, 'is_array'));
     }
 }

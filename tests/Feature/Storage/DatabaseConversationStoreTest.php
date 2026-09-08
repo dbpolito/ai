@@ -251,6 +251,35 @@ test('it persists provider content blocks in message meta', function (): void {
         ->and($messages[0]->providerContentBlocksProvider)->toBe('openai');
 });
 
+test('it omits provider content blocks from a completed turn that made tool calls', function (): void {
+    $store = new DatabaseConversationStore;
+    $conversationId = $store->storeConversation('user', 1, 'Tool conversation');
+
+    $prompt = new AgentPrompt(
+        new ToolUsingAgent,
+        'Delete the file.',
+        [],
+        Mockery::mock(TextProvider::class),
+        'test-model',
+    );
+
+    $response = new AgentResponse('invocation-id', 'Deleted the file.', new Usage, new Meta('anthropic', 'test-model'));
+    $response->toolCalls = collect([new ToolCall('call-1', 'delete-file', [])]);
+    $response->toolResults = collect([new ToolResult('call-1', 'delete-file', [], 'Deleted')]);
+    $response->withMessages(collect([
+        new AssistantMessage('Deleted the file.', collect([new ToolCall('call-1', 'delete-file', [])]), [
+            ['type' => 'thinking', 'signature' => 'sig-1'],
+            ['type' => 'tool_use', 'id' => 'call-1', 'name' => 'delete-file', 'input' => []],
+        ]),
+    ]));
+
+    $store->storeAssistantMessage($conversationId, 'user', 1, $prompt, $response);
+
+    $record = DB::table('agent_conversation_messages')->where('role', 'assistant')->first();
+
+    expect(json_decode((string) $record->meta, true))->not->toHaveKey('provider_content_blocks');
+});
+
 test('a bare rejection resume does not persist a blank assistant row', function (): void {
     $store = new DatabaseConversationStore;
     $conversationId = $store->storeConversation('user', 1, 'Approval conversation');

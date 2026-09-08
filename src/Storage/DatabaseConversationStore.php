@@ -197,7 +197,7 @@ class DatabaseConversationStore implements ConversationStore
     }
 
     /**
-     * Build the message meta payload, tucking a paused turn's raw provider blocks alongside the response meta.
+     * Build the message meta payload, tucking a turn's raw provider blocks alongside the response meta.
      *
      * @return array<string, mixed>
      */
@@ -205,11 +205,7 @@ class DatabaseConversationStore implements ConversationStore
     {
         $meta = (array) json_decode(json_encode($response->meta), true);
 
-        $blocks = $response->hasPendingApprovals()
-            ? $response->pausedProviderContentBlocks()
-            : $this->providerContentBlocks($response);
-
-        if (filled($blocks)) {
+        if (filled($blocks = $this->replayableProviderContentBlocks($response))) {
             $meta['provider_content_blocks'] = $blocks;
         }
 
@@ -263,7 +259,7 @@ class DatabaseConversationStore implements ConversationStore
                     $messages = [new ToolResultMessage($toolResults->map(ToolResult::fromArray(...)))];
 
                     if (filled($record->content)) {
-                        $messages[] = new AssistantMessage($record->content, providerContentBlocks: $providerContentBlocks, providerContentBlocksProvider: $provider);
+                        $messages[] = new AssistantMessage($record->content);
                     }
 
                     return $messages;
@@ -315,10 +311,9 @@ class DatabaseConversationStore implements ConversationStore
         $meta = (array) json_decode($record->meta ?? '[]', true);
 
         $providerContentBlocks = $meta['provider_content_blocks'] ?? [];
-        $provider = $meta['provider'] ?? null;
 
         if ($isPause && filled($providerContentBlocks)) {
-            $messages[] = new AssistantMessage($record->content, $toolCalls->map(ToolCall::fromArray(...))->values(), $providerContentBlocks, $provider);
+            $messages[] = new AssistantMessage($record->content, $toolCalls->map(ToolCall::fromArray(...))->values(), $providerContentBlocks, $meta['provider'] ?? null);
 
             if ($ownResults->isNotEmpty()) {
                 $messages[] = new ToolResultMessage($ownResults->map(ToolResult::fromArray(...))->values());
@@ -329,7 +324,7 @@ class DatabaseConversationStore implements ConversationStore
 
         // Calls already answered this turn are replayed with their results...
         if ($resolvedCalls->isNotEmpty()) {
-            $messages[] = new AssistantMessage('', $resolvedCalls->map(ToolCall::fromArray(...))->values(), $providerContentBlocks, $provider);
+            $messages[] = new AssistantMessage('', $resolvedCalls->map(ToolCall::fromArray(...))->values());
             $messages[] = new ToolResultMessage($ownResults->map(ToolResult::fromArray(...))->values());
         }
 
@@ -339,38 +334,36 @@ class DatabaseConversationStore implements ConversationStore
         )->values();
 
         if ($keptCalls->isNotEmpty()) {
-            $messages[] = new AssistantMessage($record->content, $keptCalls->map(ToolCall::fromArray(...))->values(), $providerContentBlocks, $provider);
+            $messages[] = new AssistantMessage($record->content, $keptCalls->map(ToolCall::fromArray(...))->values());
         } elseif (filled($record->content)) {
-            $messages[] = new AssistantMessage($record->content, providerContentBlocks: $providerContentBlocks, providerContentBlocksProvider: $provider);
+            $messages[] = new AssistantMessage($record->content);
         }
 
         return $messages;
     }
 
     /**
-     * Extract provider replay state from generated assistant messages.
+     * Get the raw provider blocks that are safe to replay verbatim on a later turn.
+     *
+     * A turn that made tool calls is rebuilt call by call on read, so its raw blocks would replay tool calls the reconstruction deliberately dropped.
+     *
+     * @return array<int, array<string, mixed>>
      */
-    protected function providerContentBlocks(AgentResponse $response): array
+    protected function replayableProviderContentBlocks(AgentResponse $response): array
     {
-        $providerContentBlocks = [];
+        if ($response->hasPendingApprovals()) {
+            return $response->pausedProviderContentBlocks();
+        }
 
-        $response->messages
+        if ($response->toolCalls->isNotEmpty()) {
+            return [];
+        }
+
+        return $response->messages
             ->whereInstanceOf(AssistantMessage::class)
-            ->each(function (AssistantMessage $message) use (&$providerContentBlocks) {
-                if (blank($message->providerContentBlocks)) {
-                    return;
-                }
-
-                if (array_is_list($message->providerContentBlocks)) {
-                    array_push($providerContentBlocks, ...$message->providerContentBlocks);
-
-                    return;
-                }
-
-                $providerContentBlocks = array_merge($providerContentBlocks, $message->providerContentBlocks);
-            });
-
-        return $providerContentBlocks;
+            ->flatMap(fn (AssistantMessage $message) => $message->providerContentBlocks)
+            ->values()
+            ->all();
     }
 
     /**
