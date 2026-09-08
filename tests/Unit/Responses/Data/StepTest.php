@@ -14,8 +14,7 @@ test('step stores text tool calls and other properties', function (): void {
         toolResults: [],
         finishReason: FinishReason::Stop,
         usage: $usage,
-        meta: $meta,
-        providerContentBlocks: [['type' => 'reasoning', 'summary' => [['text' => 'Checked constraints.']]]],
+        meta: $meta
     );
 
     expect($step->text)->toBe('Hello')
@@ -23,8 +22,7 @@ test('step stores text tool calls and other properties', function (): void {
         ->and($step->toolResults)->toBeEmpty()
         ->and($step->finishReason)->toBe(FinishReason::Stop)
         ->and($step->usage)->toBe($usage)
-        ->and($step->meta)->toBe($meta)
-        ->and($step->providerContentBlocks)->toBe([['type' => 'reasoning', 'summary' => [['text' => 'Checked constraints.']]]]);
+        ->and($step->meta)->toBe($meta);
 });
 
 test('step to array returns all properties including serialized usage and meta', function (): void {

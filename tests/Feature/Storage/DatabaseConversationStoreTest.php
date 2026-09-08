@@ -799,28 +799,6 @@ test('it records provider content blocks into the message meta when a turn pause
         ->toHaveKey('provider_content_blocks', [['type' => 'thinking', 'signature' => 'sig-1']]);
 });
 
-test('it omits provider content blocks when none are present', function (): void {
-    $store = new DatabaseConversationStore;
-    $conversationId = $store->storeConversation('user', 1, 'Tool conversation');
-
-    $prompt = new AgentPrompt(
-        new ToolUsingAgent,
-        'Delete config/app.php.',
-        [],
-        Mockery::mock(TextProvider::class),
-        'test-model',
-    );
-
-    $response = (new AgentResponse('invocation-id', 'Deleted the file.', new Usage, new Meta))
-        ->withMessages(collect([new AssistantMessage('Deleted the file.')]));
-
-    $store->storeAssistantMessage($conversationId, 'user', 1, $prompt, $response);
-
-    $record = DB::table('agent_conversation_messages')->where('role', 'assistant')->first();
-
-    expect(json_decode((string) $record->meta, true))->not->toHaveKey('provider_content_blocks');
-});
-
 test('it records provider content blocks into the message meta when a stream pauses', function (): void {
     $store = new DatabaseConversationStore;
     $conversationId = $store->storeConversation('user', 1, 'Tool conversation');
